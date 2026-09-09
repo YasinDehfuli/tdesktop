@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "media/streaming/media_streaming_common.h"
 #include "media/streaming/media_streaming_file_delegate.h"
+#include "media/streaming/media_streaming_subtitles.h"
 #include "base/weak_ptr.h"
 #include "base/timer.h"
 
@@ -25,7 +26,9 @@ class Reader;
 class File;
 class AudioTrack;
 class VideoTrack;
+class SubtitleTrack;
 class Instance;
+struct SubtitlesSource;
 
 class Player final : private FileDelegate {
 public:
@@ -59,6 +62,13 @@ public:
 
 	[[nodiscard]] rpl::producer<Update, Error> updates() const;
 	[[nodiscard]] rpl::producer<bool> fullInCache() const;
+
+	// Fires when the available subtitle tracks or the visible cues change.
+	[[nodiscard]] rpl::producer<> subtitlesUpdates() const;
+	[[nodiscard]] auto subtitleTracks() const
+		-> const std::vector<SubtitleTrackInfo> &;
+	[[nodiscard]] int subtitleId() const;
+	[[nodiscard]] const std::vector<SubtitleCue> &subtitleCues() const;
 
 	[[nodiscard]] int64 fileSize() const;
 	[[nodiscard]] QSize videoSize() const;
@@ -101,7 +111,11 @@ private:
 
 	// FileDelegate methods are called only from the File thread.
 	Mode fileOpenMode() override;
-	bool fileReady(int headerSize, Stream &&video, Stream &&audio) override;
+	bool fileReady(
+		int headerSize,
+		Stream &&video,
+		Stream &&audio,
+		SubtitlesSource &&subtitles) override;
 	void fileError(Error error) override;
 	void fileWaitingForData() override;
 	void fileFullInCache(bool fullInCache) override;
@@ -125,6 +139,12 @@ private:
 	void audioPlayedTill(crl::time position);
 	void videoReceivedTill(crl::time position);
 	void videoPlayedTill(crl::time position);
+	void subtitlesReady(
+		std::vector<SubtitleTrackInfo> &&tracks,
+		int chosenId);
+	void subtitleCuesDecoded(std::vector<SubtitleCue> &&cues);
+	void subtitlePlayedTill(crl::time position);
+	void clearSubtitles();
 
 	void updatePausedState();
 	[[nodiscard]] bool trackReceivedEnough(
@@ -171,6 +191,7 @@ private:
 	AudioMsgId _audioId;
 	std::unique_ptr<AudioTrack> _audio;
 	std::unique_ptr<VideoTrack> _video;
+	std::unique_ptr<SubtitleTrack> _subtitle;
 
 	// Immutable while File is active.
 	base::has_weak_ptr _sessionGuard;
@@ -204,6 +225,11 @@ private:
 	rpl::event_stream<Update, Error> _updates;
 	rpl::event_stream<bool> _fullInCache;
 	std::optional<bool> _fullInCacheSinceStart;
+
+	SubtitleTimeline _subtitles;
+	std::vector<SubtitleTrackInfo> _subtitleTracks;
+	int _subtitleId = kSubtitlesOff;
+	rpl::event_stream<> _subtitlesUpdates;
 
 	crl::time _totalDuration = kTimeUnknown;
 	crl::time _loopingShift = 0;

@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/streaming/media_streaming_file.h"
 #include "media/streaming/media_streaming_loader.h"
 #include "media/streaming/media_streaming_audio_track.h"
+#include "media/streaming/media_streaming_subtitle_track.h"
 #include "media/streaming/media_streaming_video_track.h"
 #include "media/audio/media_audio.h" // for SupportsSpeedControl()
 #include "media/media_common.h"
@@ -221,6 +222,9 @@ void Player::audioReceivedTill(crl::time position) {
 void Player::audioPlayedTill(crl::time position) {
 	Expects(_audio != nullptr);
 
+	if (!_video) {
+		subtitlePlayedTill(position);
+	}
 	trackPlayedTill(*_audio, _information.audio.state, position);
 }
 
@@ -234,6 +238,7 @@ void Player::videoReceivedTill(crl::time position) {
 void Player::videoPlayedTill(crl::time position) {
 	Expects(_video != nullptr);
 
+	subtitlePlayedTill(position);
 	trackPlayedTill(*_video, _information.video.state, position);
 }
 
@@ -241,7 +246,11 @@ Mode Player::fileOpenMode() {
 	return _options.mode;
 }
 
-bool Player::fileReady(int headerSize, Stream &&video, Stream &&audio) {
+bool Player::fileReady(
+		int headerSize,
+		Stream &&video,
+		Stream &&audio,
+		SubtitlesSource &&subtitles) {
 	_waitingForData = false;
 
 	const auto weak = base::make_weak(&_sessionGuard);
@@ -319,8 +328,67 @@ bool Player::fileReady(int headerSize, Stream &&video, Stream &&audio) {
 		_audio ? _audio->streamDuration() : kTimeUnknown,
 		_video ? _video->streamDuration() : kTimeUnknown);
 
+	if (subtitles.stream.codec) {
+		_subtitle = std::make_unique<SubtitleTrack>(
+			std::move(subtitles.stream),
+			[=](std::vector<SubtitleCue> &&cues) {
+				crl::on_main(weak, [=, cues = std::move(cues)]() mutable {
+					subtitleCuesDecoded(std::move(cues));
+				});
+			});
+	}
+	if (!subtitles.tracks.empty()) {
+		// Files without subtitles report nothing: 'stop' has already reset
+		// the state, and most playbacks in the app never have a track.
+		const auto chosenId = subtitles.chosenId;
+		crl::on_main(weak, [
+			=,
+			tracks = std::move(subtitles.tracks)
+		]() mutable {
+			subtitlesReady(std::move(tracks), chosenId);
+		});
+	}
+
 	Ensures(_totalDuration > 1);
 	return true;
+}
+
+void Player::subtitlesReady(
+		std::vector<SubtitleTrackInfo> &&tracks,
+		int chosenId) {
+	_subtitles.clear();
+	_subtitleTracks = std::move(tracks);
+	_subtitleId = chosenId;
+	_subtitlesUpdates.fire({});
+}
+
+void Player::subtitleCuesDecoded(std::vector<SubtitleCue> &&cues) {
+	_subtitles.add(std::move(cues));
+
+	// A cue may already cover the position we are playing right now. The
+	// clock has to be the same one 'subtitlePlayedTill' is driven by, or
+	// the timeline would see the position jump back and forth.
+	subtitlePlayedTill(_video
+		? _information.video.state.position
+		: _information.audio.state.position);
+}
+
+void Player::subtitlePlayedTill(crl::time position) {
+	if (_subtitles.moveTo(position)) {
+		_subtitlesUpdates.fire({});
+	}
+}
+
+void Player::clearSubtitles() {
+	const auto had = !_subtitleTracks.empty()
+		|| !_subtitles.visible().empty();
+	_subtitle = nullptr;
+	_subtitleTracks.clear();
+	_subtitleId = kSubtitlesOff;
+	_subtitles.clear();
+	if (had) {
+		_subtitlesUpdates.fire({});
+	}
 }
 
 void Player::fileError(Error error) {
@@ -400,6 +468,8 @@ bool Player::fileProcessPackets(
 				videoReceivedTill(till);
 			});
 			_video->process(base::take(list));
+		} else if (_subtitle && _subtitle->streamIndex() == index) {
+			_subtitle->process(base::take(list), _loopingShift);
 		} else {
 			list.clear(); // Free non-needed packets.
 		}
@@ -429,6 +499,9 @@ void Player::fileProcessEndOfFile() {
 			videoReceivedTill(till);
 		});
 		_video->process(generateEmptyQueue());
+	}
+	if (_subtitle) {
+		_subtitle->process(generateEmptyQueue(), _loopingShift);
 	}
 }
 
@@ -553,6 +626,7 @@ void Player::play(const PlaybackOptions &options) {
 	_file->start(delegate(), {
 		.position = _options.position,
 		.durationOverride = options.durationOverride,
+		.subtitleId = _options.subtitleId,
 		.seekable = _options.seekable,
 		.hwAllow = _options.hwAllowed,
 	});
@@ -796,6 +870,7 @@ void Player::stop(bool stillActive) {
 	_stage = Stage::Uninitialized;
 	_audio = nullptr;
 	_video = nullptr;
+	clearSubtitles();
 	invalidate_weak_ptrs(&_sessionGuard);
 	_pausedByUser = _pausedByWaitingForData = _paused = false;
 	_renderFrameTimer.cancel();
@@ -885,6 +960,23 @@ rpl::producer<Update, Error> Player::updates() const {
 
 rpl::producer<bool> Player::fullInCache() const {
 	return _fullInCache.events();
+}
+
+rpl::producer<> Player::subtitlesUpdates() const {
+	return _subtitlesUpdates.events();
+}
+
+auto Player::subtitleTracks() const
+-> const std::vector<SubtitleTrackInfo> & {
+	return _subtitleTracks;
+}
+
+int Player::subtitleId() const {
+	return _subtitleId;
+}
+
+const std::vector<SubtitleCue> &Player::subtitleCues() const {
+	return _subtitles.visible();
 }
 
 int64 Player::fileSize() const {

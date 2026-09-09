@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "media/streaming/media_streaming_common.h"
+#include "media/streaming/media_streaming_subtitle_track.h"
 #include "media/streaming/media_streaming_utility.h"
 #include "media/streaming/media_streaming_reader.h"
 #include "ffmpeg/ffmpeg_utility.h"
@@ -24,6 +25,7 @@ class FileDelegate;
 struct StartOptions {
 	crl::time position = 0;
 	crl::time durationOverride = 0;
+	int subtitleId = kSubtitlesAuto;
 	bool seekable = true;
 	bool hwAllow = false;
 };
@@ -87,6 +89,10 @@ private:
 			AVMediaType type,
 			Mode mode,
 			StartOptions options);
+		[[nodiscard]] SubtitlesSource initSubtitles(
+			not_null<AVFormatContext *> format,
+			Mode mode,
+			int requestedId);
 		void seekToPosition(
 			not_null<AVFormatContext *> format,
 			const Stream &stream,
