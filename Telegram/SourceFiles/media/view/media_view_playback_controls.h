@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "ui/rp_widget.h"
 #include "base/object_ptr.h"
+#include "media/streaming/media_streaming_subtitles.h"
 #include "media/media_common.h"
 
 namespace Ui {
@@ -51,6 +52,10 @@ public:
 			-> VideoQuality = 0;
 		virtual void playbackControlsQualityChanged(
 			Media::VideoQuality quality) = 0;
+		[[nodiscard]] virtual auto playbackControlsSubtitles()
+			-> std::vector<Streaming::SubtitleTrackInfo> = 0;
+		[[nodiscard]] virtual int playbackControlsCurrentSubtitle() = 0;
+		virtual void playbackControlsSubtitleChanged(int id) = 0;
 		virtual void playbackControlsToFullScreen() = 0;
 		virtual void playbackControlsFromFullScreen() = 0;
 		virtual void playbackControlsToPictureInPicture() = 0;
@@ -74,6 +79,7 @@ public:
 	void setInFullScreen(bool inFullScreen);
 	void updatePlaybackSpeed(float64 speed);
 	void updateSpeedToggleQuality();
+	void updateSubtitles();
 	[[nodiscard]] bool hasTimestamps() const;
 	[[nodiscard]] std::optional<TimestampData> nextTimestamp(
 		float64 progress) const;
@@ -116,6 +122,7 @@ private:
 
 	bool _speedControllable = false;
 	std::vector<Media::VideoQuality> _qualitiesList;
+	std::vector<Streaming::SubtitleTrackInfo> _subtitlesList;
 
 	bool _inFullScreen = false;
 	bool _showPause = false;

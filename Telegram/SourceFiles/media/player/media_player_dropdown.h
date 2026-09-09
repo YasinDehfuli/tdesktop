@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "base/timer.h"
+#include "media/streaming/media_streaming_subtitles.h"
 #include "media/media_common.h"
 #include "ui/rp_widget.h"
 #include "ui/effects/animations.h"
@@ -25,6 +26,7 @@ class IconButton;
 } // namespace Ui
 
 namespace Ui::Menu {
+class Action;
 class Menu;
 } // namespace Ui::Menu
 
@@ -142,8 +144,22 @@ public:
 	void reloadFromLookup();
 	void setQualities(std::vector<VideoQuality> qualities);
 
+	// Optional subtitles section, filled after construction because the
+	// tracks are only known once the media header has been read.
+	void setSubtitles(
+		std::vector<Streaming::SubtitleTrackInfo> subtitles,
+		Fn<int()> lookup,
+		Fn<void(int)> change);
+
 private:
 	void fillMenu(not_null<Ui::DropdownMenu*> menu) override;
+	void fillQualitiesMenu(not_null<Ui::DropdownMenu*> menu);
+	void fillSubtitlesMenu(not_null<Ui::DropdownMenu*> menu);
+	not_null<Ui::Menu::Action*> addCheckedAction(
+		not_null<Ui::DropdownMenu*> menu,
+		const QString &text,
+		rpl::producer<bool> checked,
+		Fn<void()> callback);
 
 	[[nodiscard]] float64 speed() const;
 	[[nodiscard]] bool isDefault() const;
@@ -165,6 +181,11 @@ private:
 	Fn<VideoQuality()> _lookupQuality;
 	Fn<void(VideoQuality)> _changeQuality;
 	rpl::variable<VideoQuality> _quality;
+
+	std::vector<Streaming::SubtitleTrackInfo> _subtitles;
+	Fn<int()> _lookupSubtitle;
+	Fn<void(int)> _changeSubtitle;
+	rpl::variable<int> _subtitle = Streaming::kSubtitlesOff;
 
 };
 

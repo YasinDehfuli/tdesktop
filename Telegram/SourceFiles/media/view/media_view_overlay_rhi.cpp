@@ -1517,6 +1517,13 @@ void OverlayWidget::RendererRhi::paintSaveMsg(QRect outer) {
 	}, true);
 }
 
+void OverlayWidget::RendererRhi::paintSubtitles(QRect outer) {
+	paintUsingRaster(outer, [&](Painter &p) {
+		const auto newOuter = QRect(QPoint(), outer.size());
+		_owner->paintSubtitlesContent(p, newOuter, newOuter);
+	}, true);
+}
+
 void OverlayWidget::RendererRhi::paintChapter(QRect outer) {
 	paintUsingRaster(outer, [&](Painter &p) {
 		const auto newOuter = QRect(QPoint(), outer.size());

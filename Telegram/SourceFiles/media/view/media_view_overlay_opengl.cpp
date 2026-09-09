@@ -28,7 +28,8 @@ constexpr auto kRadialLoadingOffset = kNotchOffset + 4;
 constexpr auto kThemePreviewOffset = kRadialLoadingOffset + 4;
 constexpr auto kDocumentBubbleOffset = kThemePreviewOffset + 4;
 constexpr auto kSaveMsgOffset = kDocumentBubbleOffset + 4;
-constexpr auto kChapterOffset = kSaveMsgOffset + 4;
+constexpr auto kSubtitlesOffset = kSaveMsgOffset + 4;
+constexpr auto kChapterOffset = kSubtitlesOffset + 4;
 constexpr auto kSpeedBoostOffset = kChapterOffset + 4;
 constexpr auto kFooterOffset = kSpeedBoostOffset + 4;
 constexpr auto kCaptionOffset = kFooterOffset + 4;
@@ -148,6 +149,7 @@ OverlayWidget::RendererGL::RendererGL(not_null<OverlayWidget*> owner)
 		_saveMsgImage.invalidate();
 		_footerImage.invalidate();
 		_captionImage.invalidate();
+		_subtitlesImage.invalidate();
 		invalidateControls();
 	}, _lifetime);
 
@@ -297,6 +299,7 @@ void OverlayWidget::RendererGL::deinit(QOpenGLFunctions *f) {
 	_documentBubbleImage.destroy(f);
 	_themePreviewImage.destroy(f);
 	_saveMsgImage.destroy(f);
+	_subtitlesImage.destroy(f);
 	_footerImage.destroy(f);
 	_captionImage.destroy(f);
 	_groupThumbsImage.destroy(f);
@@ -744,6 +747,13 @@ void OverlayWidget::RendererGL::paintSaveMsg(QRect outer) {
 		const auto newOuter = QRect(QPoint(), outer.size());
 		_owner->paintSaveMsgContent(p, newOuter, newOuter);
 	}, kSaveMsgOffset, true);
+}
+
+void OverlayWidget::RendererGL::paintSubtitles(QRect outer) {
+	paintUsingRaster(_subtitlesImage, outer, [&](Painter &&p) {
+		const auto newOuter = QRect(QPoint(), outer.size());
+		_owner->paintSubtitlesContent(p, newOuter, newOuter);
+	}, kSubtitlesOffset, true);
 }
 
 void OverlayWidget::RendererGL::paintChapter(QRect outer) {

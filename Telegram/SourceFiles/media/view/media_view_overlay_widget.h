@@ -256,6 +256,10 @@ private:
 	std::vector<VideoQuality> playbackControlsQualities() override;
 	VideoQuality playbackControlsCurrentQuality() override;
 	void playbackControlsQualityChanged(VideoQuality quality) override;
+	auto playbackControlsSubtitles()
+		-> std::vector<Streaming::SubtitleTrackInfo> override;
+	int playbackControlsCurrentSubtitle() override;
+	void playbackControlsSubtitleChanged(int id) override;
 	void playbackControlsToFullScreen() override;
 	void playbackControlsFromFullScreen() override;
 	void playbackControlsToPictureInPicture() override;
@@ -568,6 +572,12 @@ private:
 	[[nodiscard]] bool isChapterShown() const;
 	void updateChapter();
 
+	void refreshSubtitles();
+	void clearSubtitles();
+	void updateSubtitlesGeometry();
+	void paintSubtitlesContent(Painter &p, QRect outer, QRect clip);
+	[[nodiscard]] bool isSubtitlesShown() const;
+
 	void startSpeedBoost();
 	void stopSpeedBoost();
 	void updateSpeedBoostRect();
@@ -849,6 +859,10 @@ private:
 	FullMsgId _ttlBadgeItem;
 	TimeId _ttlBadgeDestroyAt = 0;
 	bool _ttlDeferredClose = false;
+
+	Ui::Text::String _subtitles;
+	QRect _subtitlesRect;
+	int _subtitleId = Streaming::kSubtitlesAuto;
 
 	QString _chapterText;
 	QRect _chapterRect;
