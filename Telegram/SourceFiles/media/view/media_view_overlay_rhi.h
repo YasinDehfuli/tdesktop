@@ -66,6 +66,7 @@ private:
 	void paintThemePreview(QRect outer) override;
 	void paintDocumentBubble(QRect outer, QRect icon) override;
 	void paintSaveMsg(QRect outer) override;
+	void paintSubtitles(QRect outer) override;
 	void paintChapter(QRect outer) override;
 	void paintSpeedBoost(QRect outer) override;
 	void paintControlsStart() override;

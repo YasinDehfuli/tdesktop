@@ -25,6 +25,11 @@ namespace Streaming {
 
 inline constexpr auto kMaxFrameArea = 3840 * 2160;
 
+// Values for 'PlaybackOptions::subtitleId'. Anything else is the index of
+// the chosen subtitle stream inside the file.
+inline constexpr auto kSubtitlesAuto = -1;
+inline constexpr auto kSubtitlesOff = -2;
+
 inline bool SupportsSpeedControl() {
 	return Media::Audio::SupportsSpeedControl();
 }
@@ -44,6 +49,7 @@ struct PlaybackOptions {
 	crl::time position = 0;
 	crl::time durationOverride = 0;
 	float64 speed = 1.; // Valid values between 0.5 and 2.
+	int subtitleId = kSubtitlesAuto;
 	AudioMsgId audioId;
 	bool syncVideoByAudio = true;
 	bool waitForMarkAsShown = false;

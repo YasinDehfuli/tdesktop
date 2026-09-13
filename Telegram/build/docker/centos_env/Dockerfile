@@ -697,6 +697,7 @@ cd FFmpeg
 	--enable-decoder=aasc \
 	--enable-decoder=ac3 \
 	--enable-decoder=alac \
+	--enable-decoder=ass \
 	--enable-decoder=av1 \
 	--enable-decoder=av1_cuvid \
 	--enable-decoder=eac3 \
@@ -707,6 +708,7 @@ cd FFmpeg
 	--enable-decoder=libdav1d \
 	--enable-decoder=libvpx_vp8 \
 	--enable-decoder=libvpx_vp9 \
+	--enable-decoder=mov_text \
 	--enable-decoder=mp1 \
 	--enable-decoder=mp1float \
 	--enable-decoder=mp2 \
@@ -751,9 +753,14 @@ cd FFmpeg
 	--enable-decoder=pcm_u32le \
 	--enable-decoder=pcm_u8 \
 	--enable-decoder=pcm_zork \
+	--enable-decoder=srt \
+	--enable-decoder=ssa \
+	--enable-decoder=subrip \
+	--enable-decoder=text \
 	--enable-decoder=vorbis \
 	--enable-decoder=vp8 \
 	--enable-decoder=wavpack \
+	--enable-decoder=webvtt \
 	--enable-decoder=wmalossless \
 	--enable-decoder=wmapro \
 	--enable-decoder=wmav1 \

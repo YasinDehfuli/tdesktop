@@ -80,6 +80,7 @@ PlaybackControls::PlaybackControls(
 		? _delegate->playbackControlsCurrentSpeed(false)
 		: 1.);
 	updateSpeedToggleQuality();
+	updateSubtitles();
 
 	if (const auto controller = _speedController.get()) {
 		controller->menuToggledValue(
@@ -239,6 +240,21 @@ void PlaybackControls::updateSpeedToggleQuality() {
 		}
 	}
 	_speedToggle->setQuality(_delegate->playbackControlsCurrentQuality());
+}
+
+void PlaybackControls::updateSubtitles() {
+	if (!_speedController) {
+		return;
+	}
+	auto subtitles = _delegate->playbackControlsSubtitles();
+	if (_subtitlesList == subtitles) {
+		return;
+	}
+	_subtitlesList = subtitles;
+	_speedController->setSubtitles(
+		std::move(subtitles),
+		[=] { return _delegate->playbackControlsCurrentSubtitle(); },
+		[=](int id) { _delegate->playbackControlsSubtitleChanged(id); });
 }
 
 void PlaybackControls::updatePlaybackSpeed(float64 speed) {

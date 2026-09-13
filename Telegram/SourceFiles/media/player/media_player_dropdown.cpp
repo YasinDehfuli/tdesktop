@@ -11,6 +11,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/timer.h"
 #include "lang/lang_keys.h"
 #include "media/player/media_player_button.h"
+#include "spellcheck/spellcheck_types.h"
+#include "ui/boxes/choose_language_box.h"
 #include "ui/cached_round_corners.h"
 #include "ui/widgets/menu/menu.h"
 #include "ui/widgets/menu/menu_action.h"
@@ -26,6 +28,34 @@ namespace Media::Player {
 namespace {
 
 constexpr auto kSpeedDebounceTimeout = crl::time(1000);
+
+[[nodiscard]] QString SubtitleLanguageName(const QString &tag) {
+	if (tag.isEmpty() || tag == u"und"_q || tag == u"mis"_q) {
+		return QString();
+	}
+	const auto language = QLocale(tag).language();
+	return (language == QLocale::AnyLanguage || language == QLocale::C)
+		? tag.toUpper()
+		: Ui::LanguageName(LanguageId{ language });
+}
+
+[[nodiscard]] QString SubtitleTrackLabel(
+		const Streaming::SubtitleTrackInfo &track,
+		int number) {
+	const auto &name = track.title;
+	const auto language = SubtitleLanguageName(track.language);
+	if (language.isEmpty() && name.isEmpty()) {
+		return tr::lng_mediaview_subtitles_track(
+			tr::now,
+			lt_index,
+			QString::number(number));
+	} else if (language.isEmpty()) {
+		return name;
+	} else if (name.isEmpty() || name == language) {
+		return language;
+	}
+	return language + u" ("_q + name + ')';
+}
 
 [[nodiscard]] float64 SpeedToSliderValue(float64 speed) {
 	return (speed - kSpeedMin) / (kSpeedMax - kSpeedMin);
@@ -809,6 +839,17 @@ void SpeedController::setQuality(VideoQuality quality) {
 	_changeQuality(quality);
 }
 
+void SpeedController::setSubtitles(
+		std::vector<Streaming::SubtitleTrackInfo> subtitles,
+		Fn<int()> lookup,
+		Fn<void(int)> change) {
+	Expects(subtitles.empty() || (lookup && change));
+
+	_subtitles = std::move(subtitles);
+	_lookupSubtitle = std::move(lookup);
+	_changeSubtitle = std::move(change);
+}
+
 void SpeedController::fillMenu(not_null<Ui::DropdownMenu*> menu) {
 	if (_lookup) {
 		FillSpeedMenu(
@@ -816,21 +857,31 @@ void SpeedController::fillMenu(not_null<Ui::DropdownMenu*> menu) {
 			_st.menu,
 			_speedChanged.events_starting_with(speed()),
 			[=](float64 speed) { setSpeed(speed); save(); },
-			!_qualities.empty());
+			!_qualities.empty() || !_subtitles.empty());
 	}
-	if (_qualities.empty()) {
-		return;
+	auto sections = _lookup ? 1 : 0;
+	const auto separate = [&] {
+		if (sections++) {
+			menu->menu()->addSeparator(
+				&_st.menu.dropdown.menu.separator);
+		}
+	};
+	if (!_qualities.empty()) {
+		separate();
+		fillQualitiesMenu(menu);
 	}
-	_quality = _lookupQuality();
-	const auto raw = menu->menu();
-	const auto &st = _st.menu;
-	if (_lookup) {
-		raw->addSeparator(&st.dropdown.menu.separator);
+	if (!_subtitles.empty()) {
+		separate();
+		fillSubtitlesMenu(menu);
 	}
+}
 
+void SpeedController::fillQualitiesMenu(not_null<Ui::DropdownMenu*> menu) {
+	_quality = _lookupQuality();
+	const auto automatic = tr::lng_mediaview_quality_auto(tr::now);
 	const auto add = [&](VideoQuality quality) {
-		const auto automatic = tr::lng_mediaview_quality_auto(tr::now);
-		const auto text = (!quality.height && !quality.original)
+		const auto automaticChosen = !quality.height && !quality.original;
+		const auto text = automaticChosen
 			? automatic
 			: quality.original
 			? tr::lng_mediaview_quality_original(
@@ -838,52 +889,87 @@ void SpeedController::fillMenu(not_null<Ui::DropdownMenu*> menu) {
 				lt_quality,
 				QString::number(quality.height))
 			: u"%1p"_q.arg(quality.height);
-		auto action = base::make_unique_q<Ui::Menu::Action>(
-			raw,
-			st.qualityMenu,
-			Ui::Menu::CreateAction(
-				raw,
-				text,
-				[=] { _changeQuality(quality); }),
-			nullptr,
-			nullptr);
-		const auto rawAction = action.get();
-		const auto check = Ui::CreateChild<Ui::RpWidget>(rawAction);
-		check->resize(st.activeCheck.size());
-		check->paintRequest(
-		) | rpl::on_next([check, icon = &st.activeCheck] {
-			auto p = QPainter(check);
-			icon->paint(p, 0, 0, check->width());
-		}, check->lifetime());
-		rawAction->sizeValue(
-		) | rpl::on_next([=, skip = st.activeCheckSkip](QSize size) {
-			check->moveToRight(
-				skip,
-				(size.height() - check->height()) / 2,
-				size.width());
-		}, check->lifetime());
-		check->setAttribute(Qt::WA_TransparentForMouseEvents);
-		_quality.value(
-		) | rpl::on_next([=](VideoQuality now) {
-			const auto chosen = now.manual
-				? (now == quality)
-				: (!quality.height && !quality.original);
-			rawAction->action()->setEnabled(!chosen);
-			if (!quality.height && !quality.original) {
+		const auto action = addCheckedAction(
+			menu,
+			text,
+			_quality.value() | rpl::map([=](VideoQuality now) {
+				return now.manual ? (now == quality) : automaticChosen;
+			}),
+			[=] { _changeQuality(quality); });
+		if (automaticChosen) {
+			_quality.value(
+			) | rpl::on_next([=](VideoQuality now) {
 				const auto suffix = now.manual
 					? QString()
 					: u"\t%1p"_q.arg(now.height);
-				rawAction->action()->setText(automatic + suffix);
-			}
-			check->setVisible(chosen);
-		}, rawAction->lifetime());
-		menu->addAction(std::move(action));
+				action->action()->setText(automatic + suffix);
+			}, action->lifetime());
+		}
 	};
 
 	add(VideoQuality());
 	for (const auto &quality : _qualities) {
 		add(quality);
 	}
+}
+
+void SpeedController::fillSubtitlesMenu(not_null<Ui::DropdownMenu*> menu) {
+	_subtitle = _lookupSubtitle();
+	const auto add = [&](int id, const QString &text) {
+		addCheckedAction(
+			menu,
+			text,
+			_subtitle.value() | rpl::map([=](int now) {
+				return (now == id);
+			}),
+			[=] {
+				_subtitle = id;
+				_changeSubtitle(id);
+			});
+	};
+
+	add(Streaming::kSubtitlesOff, tr::lng_mediaview_subtitles_off(tr::now));
+	auto index = 0;
+	for (const auto &track : _subtitles) {
+		add(track.id, SubtitleTrackLabel(track, ++index));
+	}
+}
+
+not_null<Ui::Menu::Action*> SpeedController::addCheckedAction(
+		not_null<Ui::DropdownMenu*> menu,
+		const QString &text,
+		rpl::producer<bool> checked,
+		Fn<void()> callback) {
+	const auto raw = menu->menu();
+	const auto &st = _st.menu;
+	auto action = base::make_unique_q<Ui::Menu::Action>(
+		raw,
+		st.qualityMenu,
+		Ui::Menu::CreateAction(raw, text, std::move(callback)),
+		nullptr,
+		nullptr);
+	const auto result = action.get();
+	const auto check = Ui::CreateChild<Ui::RpWidget>(result);
+	check->resize(st.activeCheck.size());
+	check->paintRequest(
+	) | rpl::on_next([check, icon = &st.activeCheck] {
+		auto p = QPainter(check);
+		icon->paint(p, 0, 0, check->width());
+	}, check->lifetime());
+	result->sizeValue(
+	) | rpl::on_next([=, skip = st.activeCheckSkip](QSize size) {
+		check->moveToRight(
+			skip,
+			(size.height() - check->height()) / 2,
+			size.width());
+	}, check->lifetime());
+	check->setAttribute(Qt::WA_TransparentForMouseEvents);
+	std::move(checked) | rpl::on_next([=](bool chosen) {
+		result->action()->setEnabled(!chosen);
+		check->setVisible(chosen);
+	}, result->lifetime());
+	menu->addAction(std::move(action));
+	return result;
 }
 
 } // namespace Media::Player

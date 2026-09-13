@@ -1562,6 +1562,7 @@ void OverlayWidget::clearStreaming(bool savePosition) {
 	}
 	_fullScreenVideo = false;
 	_streamed = nullptr;
+	clearSubtitles();
 }
 
 void OverlayWidget::documentUpdated(not_null<DocumentData*> document) {
@@ -2813,6 +2814,7 @@ void OverlayWidget::resizeContentByScreenSize() {
 		? (_minUsedTop + (_maxUsedHeight - _h) / 2)
 		: (_skipTop + (useh - _h) / 2);
 	_geometryAnimation.stop();
+	updateSubtitlesGeometry();
 }
 
 float64 OverlayWidget::radialProgress() const {
@@ -4991,6 +4993,11 @@ bool OverlayWidget::initStreaming(const StartStreaming &startStreaming) {
 		handleStreamingError(std::move(error));
 	}, _streamed->instance.lifetime());
 
+	_streamed->instance.player().subtitlesUpdates(
+	) | rpl::on_next([=] {
+		refreshSubtitles();
+	}, _streamed->instance.lifetime());
+
 	_streamed->instance.switchQualityRequests(
 	) | rpl::filter([=](int quality) {
 		return !_quality.manual && _quality.height != quality;
@@ -5437,6 +5444,7 @@ void OverlayWidget::refreshClipControllerGeometry() {
 		(controllerBottom // Duplicated in recountSkipTop().
 			- _streamed->controls->height()
 			- st::mediaviewCaptionPadding.bottom()));
+	updateSubtitlesGeometry();
 	Ui::SendPendingMoveResizeEvents(_streamed->controls.get());
 }
 
@@ -5583,6 +5591,7 @@ void OverlayWidget::restartAtSeekPosition(crl::time position) {
 			&& _document->hasDuration())
 			? _document->duration()
 			: crl::time(0)),
+		.subtitleId = _subtitleId,
 		.hwAllowed = Core::App().settings().hardwareAcceleratedVideo(),
 		.seekable = !_stories,
 	};
@@ -5732,6 +5741,26 @@ void OverlayWidget::playbackControlsQualityChanged(VideoQuality quality) {
 		.height = quality.height,
 		.original = quality.original,
 	});
+}
+
+auto OverlayWidget::playbackControlsSubtitles()
+-> std::vector<Streaming::SubtitleTrackInfo> {
+	return _streamed
+		? _streamed->instance.player().subtitleTracks()
+		: std::vector<Streaming::SubtitleTrackInfo>();
+}
+
+int OverlayWidget::playbackControlsCurrentSubtitle() {
+	return _subtitleId;
+}
+
+void OverlayWidget::playbackControlsSubtitleChanged(int id) {
+	if (!_streamed || _subtitleId == id) {
+		return;
+	}
+	_subtitleId = id;
+	_streamingStartPaused = _streamed->instance.player().paused();
+	restartAtSeekPosition(_streamedPosition);
 }
 
 void OverlayWidget::applyVideoQuality(VideoQuality value) {
@@ -6438,6 +6467,9 @@ void OverlayWidget::paint(not_null<Renderer*> renderer) {
 	} else if (documentBubbleShown() && !_docRect.isEmpty()) {
 		renderer->paintDocumentBubble(_docRect, _docIconRect);
 	}
+	if (isSubtitlesShown()) {
+		renderer->paintSubtitles(_subtitlesRect);
+	}
 	if (isSaveMsgShown()) {
 		renderer->paintSaveMsg(_saveMsg);
 	}
@@ -6767,6 +6799,124 @@ void OverlayWidget::showChapterIndicator(
 			+ st::mediaviewChapterArrowFade);
 	_chapterArrows.push_back(std::move(arrow));
 	updateChapter();
+}
+
+void OverlayWidget::refreshSubtitles() {
+	Expects(_streamed != nullptr);
+
+	const auto &player = _streamed->instance.player();
+	if (!player.subtitleTracks().empty()) {
+		// While the file is restarting the player reports no tracks yet,
+		// and the choice the user made must survive that gap.
+		_subtitleId = player.subtitleId();
+	}
+	if (const auto controls = _streamed->controls.get()) {
+		controls->updateSubtitles();
+	}
+	auto text = TextWithEntities();
+	for (const auto &cue : player.subtitleCues()) {
+		if (cue.text.empty()) {
+			continue;
+		} else if (!text.empty()) {
+			text.append('\n');
+		}
+		text.append(cue.text);
+	}
+	if (text.empty()) {
+		_subtitles = Ui::Text::String();
+	} else {
+		_subtitles = Ui::Text::String(st::msgMinWidth);
+		_subtitles.setMarkedText(
+			st::mediaviewSubtitleStyle,
+			text,
+			kPlainTextOptions);
+	}
+	const auto was = _subtitlesRect;
+	updateSubtitlesGeometry();
+	const auto changed = was.united(_subtitlesRect);
+	if (!changed.isEmpty()) {
+		update(changed);
+	}
+}
+
+void OverlayWidget::clearSubtitles() {
+	_subtitles = Ui::Text::String();
+	_subtitleId = Streaming::kSubtitlesAuto;
+	const auto was = base::take(_subtitlesRect);
+	if (!was.isEmpty()) {
+		update(was);
+	}
+}
+
+void OverlayWidget::updateSubtitlesGeometry() {
+	if (_subtitles.isEmpty()) {
+		_subtitlesRect = QRect();
+		return;
+	}
+	const auto content = finalContentRect().intersected(
+		QRect(0, 0, width(), height()));
+	const auto area = content.isEmpty()
+		? QRect(0, 0, width(), height())
+		: content;
+	const auto padding = st::mediaviewSubtitlePadding;
+	const auto skip = padding.left() + padding.right();
+	const auto available = std::max(
+		area.width() - 2 * st::mediaviewSubtitleOuterMargin - skip,
+		st::msgMinWidth);
+	const auto textWidth = std::min(_subtitles.maxWidth(), available);
+	const auto textHeight = std::min(
+		_subtitles.countHeight(textWidth),
+		st::mediaviewSubtitleMaxHeight);
+	const auto full = QSize(
+		textWidth + skip,
+		textHeight + padding.top() + padding.bottom());
+
+	auto bottom = area.y() + area.height() - st::mediaviewSubtitleSkip;
+	const auto controls = _streamed ? _streamed->controls.get() : nullptr;
+	if (controls && !controls->isHidden()) {
+		accumulate_min(
+			bottom,
+			controls->y() - st::mediaviewSubtitleControlsSkip);
+	}
+	accumulate_min(bottom, height() - st::mediaviewSubtitleSkip);
+	accumulate_max(bottom, full.height());
+	_subtitlesRect = QRect(
+		QPoint(
+			std::max(area.x() + (area.width() - full.width()) / 2, 0),
+			bottom - full.height()),
+		full);
+}
+
+bool OverlayWidget::isSubtitlesShown() const {
+	return !_subtitlesRect.isEmpty() && videoShown() && !_stories;
+}
+
+void OverlayWidget::paintSubtitlesContent(
+		Painter &p,
+		QRect outer,
+		QRect clip) {
+	if (!outer.intersects(clip)) {
+		return;
+	}
+	const auto inner = outer.marginsRemoved(st::mediaviewSubtitlePadding);
+	{
+		auto hq = PainterHighQualityEnabler(p);
+		p.setBrush(st::mediaviewCaptionBg);
+		p.setPen(Qt::NoPen);
+		p.drawRoundedRect(
+			outer,
+			st::mediaviewSubtitleRadius,
+			st::mediaviewSubtitleRadius);
+	}
+	p.setPen(st::mediaviewCaptionFg);
+	_subtitles.draw(p, {
+		.position = inner.topLeft(),
+		.outerWidth = outer.width(),
+		.availableWidth = inner.width(),
+		.align = style::al_top,
+		.palette = &st::mediaviewTextPalette,
+		.elisionHeight = inner.height(),
+	});
 }
 
 void OverlayWidget::paintChapterContent(

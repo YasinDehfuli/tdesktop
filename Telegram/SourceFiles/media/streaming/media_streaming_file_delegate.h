@@ -15,6 +15,7 @@ namespace Media {
 namespace Streaming {
 
 struct Stream;
+struct SubtitlesSource;
 enum class Error;
 
 class FileDelegate {
@@ -23,7 +24,8 @@ public:
 	[[nodiscard]] virtual bool fileReady(
 		int headerSize,
 		Stream &&video,
-		Stream &&audio) = 0;
+		Stream &&audio,
+		SubtitlesSource &&subtitles) = 0;
 	virtual void fileError(Error error) = 0;
 	virtual void fileWaitingForData() = 0;
 	virtual void fileFullInCache(bool fullInCache) = 0;

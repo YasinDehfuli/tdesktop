@@ -222,6 +222,42 @@ Stream File::Context::initStream(
 	return result;
 }
 
+SubtitlesSource File::Context::initSubtitles(
+		not_null<AVFormatContext*> format,
+		Mode mode,
+		int requestedId) {
+	auto result = SubtitlesSource();
+	if (mode != Mode::Both && mode != Mode::Video) {
+		return result;
+	}
+	result.tracks = EnumerateSubtitleTracks(format);
+	const auto chosen = (requestedId == kSubtitlesAuto)
+		? ChooseSubtitleTrack(result.tracks)
+		: requestedId;
+	const auto i = ranges::find(
+		result.tracks,
+		chosen,
+		&SubtitleTrackInfo::id);
+	if (i == end(result.tracks)) {
+		return result;
+	}
+
+	// Failing to open a subtitle decoder leaves the track in the list, so
+	// the interface still offers it, and simply plays without subtitles.
+	const auto info = format->streams[chosen];
+	auto stream = Stream();
+	stream.index = chosen;
+	stream.timeBase = info->time_base;
+	stream.codec = FFmpeg::MakeCodecPointer({ .stream = info });
+	if (!stream.codec) {
+		LOG(("Streaming Error: No codec for subtitle stream %1.").arg(chosen));
+		return result;
+	}
+	result.stream = std::move(stream);
+	result.chosenId = chosen;
+	return result;
+}
+
 void File::Context::seekToPosition(
 		not_null<AVFormatContext*> format,
 		const Stream &stream,
@@ -316,6 +352,11 @@ void File::Context::start(StartOptions options) {
 		return;
 	}
 
+	auto subtitles = initSubtitles(format.get(), mode, options.subtitleId);
+	if (unroll()) {
+		return;
+	}
+
 	_reader->headerDone();
 	if (_reader->isRemoteLoader()) {
 		sendFullInCache(true);
@@ -336,9 +377,16 @@ void File::Context::start(StartOptions options) {
 	if (audio.codec) {
 		_queuedPackets[audio.index].reserve(kMaxQueuedPackets);
 	}
+	if (subtitles.stream.codec) {
+		_queuedPackets[subtitles.stream.index].reserve(kMaxQueuedPackets);
+	}
 
 	const auto header = _reader->headerSize();
-	if (!_delegate->fileReady(header, std::move(video), std::move(audio))) {
+	if (!_delegate->fileReady(
+			header,
+			std::move(video),
+			std::move(audio),
+			std::move(subtitles))) {
 		return fail(Error::OpenFailed);
 	}
 	_format = std::move(format);

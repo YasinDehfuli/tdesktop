@@ -288,6 +288,16 @@ mediaviewCaptionPadding: margins(11px, 6px, 11px, 6px);
 mediaviewCaptionMargin: size(11px, 11px);
 mediaviewCaptionRadius: 6px;
 
+mediaviewSubtitleStyle: TextStyle(defaultTextStyle) {
+	font: font(18px semibold);
+}
+mediaviewSubtitlePadding: margins(12px, 5px, 12px, 6px);
+mediaviewSubtitleRadius: 6px;
+mediaviewSubtitleSkip: 28px;
+mediaviewSubtitleControlsSkip: 12px;
+mediaviewSubtitleOuterMargin: 48px;
+mediaviewSubtitleMaxHeight: 240px;
+
 mediaviewGroupPadding: margins(0px, 14px, 0px, 14px);
 mediaviewGroupHeight: 80px;
 mediaviewGroupWidth: 56px;
